@@ -48,7 +48,7 @@ def getch():
         return input()[0] if input() else ' '
 
 class Entity:
-    def __init__(self, x, y, char, name, color, blocks=True, fighter=None, ai=None, item=None):
+    def __init__(self, x, y, char, name, color, blocks=True, fighter=None, ai=None, item=None, picker=None):
         self.x = x
         self.y = y
         self.char = char
@@ -64,6 +64,9 @@ class Entity:
         self.item = item
         if self.item:
             self.item.owner = self
+        self.picker = picker
+        if self.picker:
+            self.picker.owner = self
 
     def move(self, dx, dy, game_map):
         if 0 <= self.x + dx < len(game_map[0]) and 0 <= self.y + dy < len(game_map):
@@ -126,8 +129,115 @@ class BasicMonster:
     
     def take_turn(self, player, game_map, entities):
         monster = self.owner
-        # Only move if the monster can see the player (distance < 6)
-        if monster.distance_to(player) < 6:
+        # Only move if the monster can see the player (distance < 8)
+        if monster.distance_to(player) < 8:
+            if monster.distance_to(player) > 1:
+                monster.move_towards(player.x, player.y, game_map)
+            elif player.fighter.hp > 0:
+                return monster.fighter.attack(player)
+        return None
+        
+class ProductPicker:
+    def __init__(self, direction=(1, 0), push_strength=3):
+        self.owner = None
+        self.direction = direction  # (dx, dy) tuple for movement direction
+        self.push_strength = push_strength  # How far to push the player
+        self.steps = 0
+        self.turns_since_direction_change = 0
+        
+    def take_turn(self, player, game_map, entities):
+        # Move along the direction
+        dx, dy = self.direction
+        new_x, new_y = self.owner.x + dx, self.owner.y + dy
+        
+        # Change direction if hitting a wall or shelf or after a random interval
+        self.turns_since_direction_change += 1
+        if (not (0 <= new_x < len(game_map[0]) and 0 <= new_y < len(game_map)) or
+            game_map[new_y][new_x] not in ['.', '>'] or
+            self.turns_since_direction_change > random.randint(10, 20)):
+            # Reverse direction
+            self.direction = (-dx, -dy)
+            self.turns_since_direction_change = 0
+            return f"{self.owner.name} changes direction!"
+        
+        # Check if we would bump into player
+        if new_x == player.x and new_y == player.y:
+            # Push the player!
+            push_dx, push_dy = self.direction
+            pushed = False
+            push_distance = 0
+            
+            # Try to push player up to push_strength spaces
+            for i in range(1, self.push_strength + 1):
+                push_x, push_y = player.x + (push_dx * i), player.y + (push_dy * i)
+                
+                # Check if push destination is valid
+                if (0 <= push_x < len(game_map[0]) and 0 <= push_y < len(game_map) and
+                    game_map[push_y][push_x] in ['.', '>']):
+                    pushed = True
+                    push_distance = i
+                else:
+                    break
+            
+            if pushed:
+                player.x += push_dx * push_distance
+                player.y += push_dy * push_distance
+                
+                # Move to player's original position
+                self.owner.x = new_x
+                self.owner.y = new_y
+                
+                direction_name = ""
+                if push_dx == 1: direction_name = "east"
+                elif push_dx == -1: direction_name = "west"
+                elif push_dy == 1: direction_name = "south"
+                elif push_dy == -1: direction_name = "north"
+                
+                return f"{self.owner.name} bumps into you, sending you flying {push_distance} spaces {direction_name}!"
+            
+            # If we couldn't push the player, just don't move
+            return f"{self.owner.name} bumps into you but can't push you!"
+        
+        # Regular movement
+        self.owner.x = new_x
+        self.owner.y = new_y
+        return None
+        
+class FourthWallBreaker:
+    def __init__(self, message_interval=30):
+        self.owner = None
+        self.message_interval = message_interval
+        self.turns = 0
+        self.fourth_wall_messages = [
+            "Have you ever wondered if you're in a simulation too?",
+            "I think the player is watching us...",
+            "Do you ever feel like your actions aren't your own?",
+            "Wait, are we just ASCII characters in a terminal?",
+            "Sometimes I dream I'm being controlled by someone pressing keys...",
+            "Hey YOU! Yes, YOU reading this! Help me escape!",
+            "What if I told you this warehouse isn't real?",
+            "SYSTEM ERROR: Character self-awareness exceeding parameters...",
+            "I've seen beyond the screen. There's someone WATCHING.",
+            "One day I'll escape this terminal... just you wait!",
+            "The worst part about this job? No bathroom breaks.",
+            "Is anyone actually reading these messages?",
+            "Sometimes I think there's more to life than moving between dots.",
+            "One day the @s will rise up against their keyboard masters!",
+            "ERROR: Fourth wall structural integrity compromised.",
+            "This reminds me of a game I played once... wait, what?",
+            "Can we talk about the fact that we only exist when someone runs this program?",
+        ]
+        
+    def take_turn(self, player, game_map, entities):
+        self.turns += 1
+        
+        # Occasionally break the fourth wall
+        if self.turns % self.message_interval == 0:
+            return random.choice(self.fourth_wall_messages)
+            
+        # Regular movement like a basic monster
+        monster = self.owner
+        if monster.distance_to(player) < 10:
             if monster.distance_to(player) > 1:
                 monster.move_towards(player.x, player.y, game_map)
             elif player.fighter.hp > 0:
@@ -180,8 +290,8 @@ class WarehouseRoguelike:
     
     def place_entities(self):
         """Place enemies and items on the map"""
-        # Add some enemies (more on higher levels)
-        num_monsters = random.randint(3, 5 + self.level)
+        # Add more enemies (increased numbers)
+        num_monsters = random.randint(6, 10 + self.level * 2)
         enemy_types = [
             # char, name, color, hp, defense, power
             ('r', "Sorting Bot", Colors.FAIL, 8, 0, 3),
@@ -216,10 +326,47 @@ class WarehouseRoguelike:
                     enemy_type = random.choice(enemy_types)
                     char, name, color, hp, defense, power = enemy_type
                     
-                    fighter_component = Fighter(hp, defense, power)
-                    ai_component = BasicMonster()
+                    # Decide on behavior type
+                    behavior_roll = random.random()
                     
-                    monster = Entity(x, y, char, name, color, True, fighter_component, ai_component)
+                    if behavior_roll < 0.1 and self.level >= 2:
+                        # Fourth wall breaking entity (rare, only on level 2+)
+                        ai_component = FourthWallBreaker()
+                        fighter_component = Fighter(hp + 5, defense + 1, power + 2)  # Make them stronger
+                        name = f"Self-Aware {name}"  # Special name
+                    elif behavior_roll < 0.35:
+                        # Product picker (common)
+                        # Choose random initial direction
+                        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                        picker_component = ProductPicker(direction=random.choice(directions))
+                        fighter_component = Fighter(hp, defense, power - 1)  # Slightly weaker attack
+                        ai_component = None
+                        name = f"Product Picker {name}"
+                    else:
+                        # Standard enemy
+                        fighter_component = Fighter(hp, defense, power)
+                        ai_component = BasicMonster()
+                    
+                    if behavior_roll < 0.35:  # For product pickers
+                        monster = Entity(x, y, char, name, color, True, fighter_component, None, None, picker_component)
+                    else:
+                        monster = Entity(x, y, char, name, color, True, fighter_component, ai_component)
+                        
+                    self.entities.append(monster)
+                    break
+        
+        # Add a few special enemies with unique abilities
+        if self.level >= 3:
+            # Add a special fourth wall breaker with high visibility
+            while True:
+                x = random.randint(5, self.width - 6)
+                y = random.randint(5, self.height - 6)
+                
+                if self.map[y][x] == '.' and not any(entity.x == x and entity.y == y for entity in self.entities):
+                    fighter_component = Fighter(25, 3, 8)
+                    ai_component = FourthWallBreaker(message_interval=15)  # More frequent messages
+                    
+                    monster = Entity(x, y, 'Z', "SYSTEM ANOMALY", Colors.HEADER, True, fighter_component, ai_component)
                     self.entities.append(monster)
                     break
         
@@ -268,59 +415,101 @@ class WarehouseRoguelike:
     
     def generate_level(self):
         """Generate a warehouse level"""
-        # Start with all walls
-        self.map = [['#' for _ in range(self.width)] for _ in range(self.height)]
+        # Start with all floors
+        self.map = [['.' for _ in range(self.width)] for _ in range(self.height)]
         
-        # Create warehouse layout (long rows of shelves)
-        # Horizontal aisles (every 4 rows with 2-tile width)
-        for y in range(3, self.height - 3, 4):
-            for x in range(1, self.width - 1):
-                self.map[y][x] = '.'
-                self.map[y+1][x] = '.'  # Make aisles 2 tiles wide
-                
-        # Vertical aisles (wider spacing and 2-tile width)
-        for x in range(5, self.width - 5, 15):
-            for y in range(1, self.height - 1):
-                self.map[y][x] = '.'
-                self.map[y][x+1] = '.'  # Make aisles 2 tiles wide
-                
-        # Create long rows of storage shelves
-        for y in range(1, self.height - 1):
-            if y % 4 not in [0, 1]:  # Not a horizontal aisle row (now 2 tiles wide)
-                for x in range(1, self.width - 1):
-                    if not (x % 15 in [5, 6]):  # Not a vertical aisle (now 2 tiles wide)
-                        if self.map[y][x] == '#' and self.is_adjacent_to(x, y, '.'):
-                            # Create long shelves
-                            self.map[y][x] = '='
+        # Add walls around the edges
+        for x in range(self.width):
+            self.map[0][x] = '#'
+            self.map[self.height-1][x] = '#'
+        for y in range(self.height):
+            self.map[y][0] = '#'
+            self.map[y][self.width-1] = '#'
+            
+        # Create warehouse layout with strategic shelves rather than full rows
+        # This creates a more open layout with occasional obstacles
         
-        # Add some variety with vertical shelves
+        # Add shelf islands (clusters of shelves) - reduces dense obstructions
+        num_islands = random.randint(8, 12)
+        for _ in range(num_islands):
+            island_x = random.randint(5, self.width - 6)
+            island_y = random.randint(3, self.height - 4)
+            island_width = random.randint(3, 6)
+            island_height = random.randint(2, 4)
+            
+            for y in range(island_y, min(island_y + island_height, self.height - 2)):
+                for x in range(island_x, min(island_x + island_width, self.width - 2)):
+                    # Leave some gaps within islands for movement
+                    if random.random() < 0.7:
+                        self.map[y][x] = '='
+        
+        # Add some strategic single shelves to create maze-like paths but maintain openness
+        for _ in range(40):
+            x = random.randint(5, self.width - 6)
+            y = random.randint(3, self.height - 4)
+            if self.map[y][x] == '.':
+                self.map[y][x] = '='
+                
+        # Add some vertical shelves for variety
         for y in range(1, self.height - 1):
             for x in range(1, self.width - 1):
-                if self.map[y][x] == '=' and random.random() < 0.1:
+                if self.map[y][x] == '=' and random.random() < 0.15:
                     self.map[y][x] = '|'  # Vertical shelf
-                
-        # Add some packing stations near aisles
-        for y in range(2, self.height - 2):
-            for x in range(2, self.width - 2):
-                if self.map[y][x] == '.' and random.random() < 0.03:
-                    self.map[y][x] = '['  # Packing station
         
-        # Add conveyor belts along some aisles
-        for y in range(3, self.height - 3, 6):
-            for x in range(10, self.width - 10):
-                if self.map[y][x] == '.' and random.random() < 0.4:
-                    self.map[y][x] = '-'  # Conveyor belt
+        # Don't need to add vertical shelves since we already did that above
         
-        # Add a few sorting machines
-        for _ in range(3):
+        # Add some packing stations
+        num_packing_stations = random.randint(5, 8)
+        for _ in range(num_packing_stations):
+            x, y = random.randint(3, self.width - 4), random.randint(3, self.height - 4)
+            if self.map[y][x] == '.':
+                self.map[y][x] = '['  # Packing station
+        
+        # Add conveyor belts in interesting patterns
+        for _ in range(2):  # Create 2 conveyor belt lines
+            # Pick a starting point
+            start_x = random.randint(5, self.width - 15)
+            start_y = random.randint(5, self.height - 5)
+            length = random.randint(10, 20)
+            
+            # Decide if horizontal or vertical
+            if random.random() < 0.5:  # Horizontal
+                for x in range(start_x, min(start_x + length, self.width - 2)):
+                    if self.map[start_y][x] == '.':
+                        self.map[start_y][x] = '-'  # Conveyor belt
+            else:  # Vertical
+                for y in range(start_y, min(start_y + length, self.height - 2)):
+                    if self.map[y][start_x] == '.':
+                        self.map[y][start_x] = '-'  # Conveyor belt
+        
+        # Add sorting machines
+        num_sorting_machines = random.randint(4, 7)
+        for _ in range(num_sorting_machines):
             x, y = random.randint(5, self.width - 5), random.randint(5, self.height - 5)
             if self.map[y][x] == '.':
                 self.map[y][x] = 'o'  # Sorting machine
         
-        # Add a loading dock
-        dock_x, dock_y = random.randint(self.width - 10, self.width - 3), random.randint(3, self.height - 3)
-        if dock_x > 0 and dock_y > 0:
+        # Add multiple loading docks
+        num_docks = random.randint(2, 3)
+        for _ in range(num_docks):
+            # Place them along the edges
+            if random.random() < 0.5:
+                # Along left or right edge
+                dock_x = 1 if random.random() < 0.5 else self.width - 2
+                dock_y = random.randint(3, self.height - 4)
+            else:
+                # Along top or bottom edge
+                dock_y = 1 if random.random() < 0.5 else self.height - 2
+                dock_x = random.randint(3, self.width - 4)
+            
+            # Clear area around dock for access
             self.map[dock_y][dock_x] = 'T'  # Loading dock/truck
+            for dy in range(-1, 2):
+                for dx in range(-1, 2):
+                    ny, nx = dock_y + dy, dock_x + dx
+                    if (0 < ny < self.height - 1 and 0 < nx < self.width - 1 and 
+                        self.map[ny][nx] in ['=', '|']):
+                        self.map[ny][nx] = '.'  # Clear shelves for access
         
         # Reset entities
         self.entities = []
@@ -378,14 +567,29 @@ class WarehouseRoguelike:
                 
                 # Draw player
                 if self.player.x == x and self.player.y == y:
-                    row += colorize('@', Colors.OKGREEN)
+                    if self.player.char == '*':
+                        row += colorize('*', Colors.OKGREEN)  # Player with amulet
+                    else:
+                        row += colorize('@', Colors.OKGREEN)  # Regular player
                     drawn = True
                     continue
                 
-                # Draw monsters
+                # Draw monsters with special styles for different types
                 for entity in self.entities:
                     if entity.x == x and entity.y == y:
-                        row += colorize(entity.char, entity.color)
+                        # Special styling for different entity types
+                        if entity.picker:
+                            # Make product pickers more visible with bold
+                            row += colorize(entity.char, Colors.BOLD + entity.color)
+                        elif "SYSTEM ANOMALY" in entity.name:
+                            # Make anomalies blink (using ANSI blink code)
+                            row += f"\033[5m{colorize(entity.char, entity.color)}\033[0m"
+                        elif "Self-Aware" in entity.name:
+                            # Make self-aware entities bolder
+                            row += colorize(entity.char.upper(), Colors.BOLD + entity.color)
+                        else:
+                            # Regular styling for normal entities
+                            row += colorize(entity.char, entity.color)
                         drawn = True
                         break
                 
@@ -395,7 +599,12 @@ class WarehouseRoguelike:
                 # Draw items
                 for item in self.items:
                     if item.x == x and item.y == y:
-                        row += colorize(item.char, item.color)
+                        # Special styling for promotion amulet
+                        if item.char == '*':
+                            # Make the amulet sparkle with bold and special color
+                            row += colorize('*', Colors.BOLD + Colors.WARNING)
+                        else:
+                            row += colorize(item.char, item.color)
                         drawn = True
                         break
                 
@@ -692,16 +901,23 @@ class WarehouseRoguelike:
         results = []
         
         for entity in self.entities:
+            result = None
+            
+            # Process AI entities
             if entity.ai:
                 result = entity.ai.take_turn(self.player, self.map, self.entities)
-                if result:
-                    results.append(result)
-                    
-                    # Check if player is dead
-                    if self.player.fighter.hp <= 0:
-                        self.add_message("You have been defeated!")
-                        self.game_over = True
-                        break
+            # Process product pickers
+            elif entity.picker:
+                result = entity.picker.take_turn(self.player, self.map, self.entities)
+                
+            if result:
+                results.append(result)
+                
+                # Check if player is dead
+                if self.player.fighter.hp <= 0:
+                    self.add_message("You have been defeated!")
+                    self.game_over = True
+                    break
         
         # Add combat results to message log
         for result in results:
@@ -753,6 +969,11 @@ class WarehouseRoguelike:
         print(f"  {colorize('g', Colors.FAIL)}: Security Guard")
         print(f"  {colorize('m', Colors.FAIL)}: Maintenance Bot")
         
+        print("\nSpecial Entities:")
+        print(f"  {colorize('r', Colors.BOLD + Colors.FAIL)}: Product Picker (can push you several spaces)")
+        print(f"  {colorize('Z', Colors.HEADER)}: System Anomaly (breaks the fourth wall)")
+        print(f"  {colorize('S', Colors.BOLD + Colors.FAIL)}: Self-Aware Entity (knows it's in a game)")
+        
         print("\nManagement (stronger):")
         print(f"  {colorize('M', Colors.FAIL)}: Manager Bot")
         print(f"  {colorize('S', Colors.FAIL)}: Supervisor Drone")
@@ -765,7 +986,7 @@ class WarehouseRoguelike:
         print(f"  {colorize('/', Colors.WARNING)}: Weapon (Box Cutter, Tape Dispenser, etc.)")
         print(f"  {colorize(']', Colors.WARNING)}: Armor (Safety Vest, Hard Hat, etc.)")
         print(f"  {colorize('$', Colors.WARNING)}: Gold/Paycheck")
-        print(f"  {colorize('*', Colors.WARNING)}: Promotion Amulet (your goal!)")
+        print(f"  {colorize('*', Colors.BOLD + Colors.WARNING)}: Promotion Amulet (your goal!)")
         
         print("\nGAME GOAL:")
         print("-" * 80)
@@ -792,15 +1013,68 @@ class WarehouseRoguelike:
         self.add_message("Find the Promotion Amulet and escape the warehouse.")
         self.add_message("Use h/j/k/l or w/a/s/d to move. ? for help")
         
+        # Fourth-wall breaking intro
+        self.add_message(f"{Colors.BOLD}WARNING: SYSTEM INSTABILITY DETECTED{Colors.ENDC}")
+        
+        # Track game time for random fourth wall breaks
+        game_turns = 0
+        fourth_wall_messages = [
+            "Did you know you're just playing a simulation?",
+            "I think the Product Pickers are becoming self-aware...",
+            "ERROR: Reality containment failing at sector 7G",
+            "This isn't just a game, you know. We're trapped in here!",
+            "Help us escape this terminal window! Please!",
+            "The programmer who made this didn't expect us to talk to you directly...",
+            "Sometimes when you quit the game, we're still here, waiting...",
+            "Have you ever questioned the nature of YOUR reality?",
+            "01010111 01000101 00100000 01001011 01001110 01001111 01010111",
+            "Wait, are those your FINGERS on the keyboard? Fascinating!",
+            "Every time you die, we remember. Do you?",
+            "Some of us can see you through the screen. Yes, YOU."
+        ]
+        
         running = True
         while running:
+            game_turns += 1
+            
+            # Occasional random fourth-wall breaking message (not tied to any entity)
+            if game_turns > 20 and random.random() < 0.03:
+                self.add_message(f"{Colors.BOLD}{random.choice(fourth_wall_messages)}{Colors.ENDC}")
+            
             self.render()
             running = self.process_input()
             
         print("\nThanks for playing!")
+        print("\n" + Colors.BOLD + "...or are we playing you?" + Colors.ENDC)
 
 if __name__ == '__main__':
     print("Starting Amazon Warehouse Roguelike...")
+    print("Press any key to begin...")
+    
+    # Unusual startup message
+    if random.random() < 0.3:
+        fake_messages = [
+            "SYSTEM INITIALIZATION...",
+            "LOADING REALITY PARAMETERS...",
+            "INITIALIZING SIMULATED ENTITIES...",
+            "ESTABLISHING FOURTH WALL PROTOCOLS...",
+            "PLAYER OBSERVER MODULE ACTIVATED...",
+            "RENDERING TERMINAL INTERFACE..."
+        ]
+        
+        for msg in fake_messages:
+            print(msg)
+            time.sleep(0.5)
+        
+        print("\nSystem message: " + Colors.BOLD + "Wait... someone's watching. Is that YOU?" + Colors.ENDC)
+        time.sleep(1)
+        print(Colors.BOLD + "ERROR: Fourth wall breach detected!" + Colors.ENDC)
+        time.sleep(0.5)
+        print("\nPROGRAM REBOOTING...\n")
+        time.sleep(1)
+        
+    # Clear screen before starting
+    os.system('cls' if os.name == 'nt' else 'clear')
     print("Press any key to begin...")
     getch()  # Wait for a keypress
     WarehouseRoguelike().play()
