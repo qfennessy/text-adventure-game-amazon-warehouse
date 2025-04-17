@@ -86,6 +86,19 @@ class Game:
         # Fog of war: track visited coordinates
         self.visited = {(self.x, self.y)}
 
+        # Build a mapping from room IDs to Room objects
+        self.rooms = {room.id: room for room in self.grid.values()}
+        # Connect neighboring rooms for navigation
+        directions = {'north': (0, -1), 'south': (0, 1), 'west': (-1, 0), 'east': (1, 0)}
+        for (x, y), room in self.grid.items():
+            for dir_name, (dx, dy) in directions.items():
+                neighbor = self.grid.get((x + dx, y + dy))
+                if neighbor:
+                    room.exits[dir_name] = neighbor.id
+
+        # Initialize current room
+        self.current_room = self.rooms.get('dock')
+
     def play(self):
         print('\nWelcome to the Amazon Warehouse Adventure!')
         print('Type "help" for a list of commands.\n')
