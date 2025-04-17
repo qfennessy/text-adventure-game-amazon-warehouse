@@ -1,45 +1,109 @@
-# Amazon Warehouse Adventure
+# Amazon Warehouse Roguelike
 
-A text adventure game set in a working Amazon warehouse where the robots probably unionized last week.
+A roguelike dungeon crawler set in an Amazon warehouse. Inspired by the classic game Rogue.
 
-## What is this?
+## About
 
-Legend says it's a game where you do riveting tasks like sorting packages, interrogating guard robots, and using a screwdriver on a broken shipping bot. Or maybe it's all in your mind.
+This roguelike features:
+- Procedurally generated warehouse levels with different layouts
+- Turn-based combat with warehouse robots and manager opponents
+- Items, weapons, and armor to collect
+- Permadeath (when you die, game over!)
+- Experience points and character progression
+- ASCII graphics with color
 
-## Requirements
+## Controls
 
-- Python 3.x (if you can figure out how to install it).
-- A sense of humor/sanity. You'll need both.
+- Standard Movement (one space): 
+  - `h`/`a`: Left one space
+  - `l`/`d`: Right one space
+  - `k`/`w`: Up one space
+  - `j`/`s`: Down one space
+- Maximum Distance Movement:
+  - `H`/`A`: Move left as far as possible
+  - `L`/`D`: Move right as far as possible
+  - `K`/`W`: Move up as far as possible
+  - `J`/`S`: Move down as far as possible
+- Other Controls:
+  - `g`: Grab an item
+  - `>`: Use stairs
+  - `?`: Help screen
+  - `q`: Quit game
 
-## Installation
+## Map Legend
 
-1. Clone this repo. Or don't bother.
-2. Run `pip install -r requirements.txt` if you find a requirements file. Good luck.
-3. See step 1.
+### Player & Navigation
+- `@`: You (the player)
+- `.`: Floor/Walkable space
+- `#`: Wall (impassable)
+- `>`: Stairs to the next level
 
-## Usage
+### Warehouse Features
+- `=`: Shelf (filled with products, can't walk through)
+- `|`: Vertical shelf
+- `[`: Packing station
+- `o`: Sorting machine
+- `-`: Conveyor belt
+- `T`: Loading dock/truck
 
+### Enemies
+- Regular employees (weaker):
+  - `r`: Sorting Bot
+  - `s`: Packing Robot
+  - `d`: Inventory Drone
+  - `g`: Security Guard
+  - `m`: Maintenance Bot
+- Management (stronger):
+  - `M`: Manager Bot
+  - `S`: Supervisor Drone
+  - `X`: Security System
+  - `A`: Executive Assistant
+  - `D`: Regional Director
+
+### Items
+- `!`: Potion (healing items like Caffeinated Drinks, Energy Supplements)
+- `/`: Weapon (Box Cutter, Tape Dispenser, Scanning Device)
+- `]`: Armor (Safety Vest, Protective Gloves, Hard Hat)
+- `$`: Gold/Paycheck
+- `*`: Promotion Amulet (the goal of the game!)
+
+## How to Play
+
+Run the game with:
 ```bash
 python3 amazon_warehouse_adventure.py
 ```
 
-Type commands. Or stare blankly at the prompt until the game feels bad enough to start.
+### Goal
+You're trapped in an endless Amazon warehouse. Find the legendary Promotion Amulet and escape to freedom! To win, you need to:
 
-## How to win
+1. Explore the procedurally generated warehouse floors
+2. Defeat robot enemies and avoid management
+3. Collect items, weapons, and armor to become stronger
+4. Find the Promotion Amulet (usually on level 5)
+5. Escape through the stairs while holding the amulet
 
-- Find the maintenance code (472). Use an access card. Or maybe hack the guard.
-- Fix the robot. Or bribe it with oil.
-- Escape. Or eat lunch there forever.
+### Health and Healing
+- You automatically heal 1 HP for every other move you make
+- Energy Drinks provide an immediate health boost
+- Finding the Promotion Amulet increases your maximum HP by 10
+- Plan your movements carefully to regenerate health between enemy encounters
+
+### Combat
+Combat is turn-based. When you move into an enemy's space, you attack it. After your turn, enemies will move and attack if they're adjacent to you. 
+
+### Puzzles & Challenges
+- **Security Checkpoints**: Some areas require special access cards
+- **Malfunctioning Conveyors**: May move you in unexpected directions
+- **Power Outages**: Certain areas might be plunged into darkness
+- **Scheduling Conflicts**: Timing puzzles where you need to avoid supervisors
+- **Inventory Quotas**: Collection challenges scattered throughout levels
 
 ## Tips
-
-- If you're stuck, read the code. But who has time for that?
-- Try banging on things. It's not guaranteed to work.
-
-## Support
-
-If you need help, ask a real programmer. This README won't help.
+- Explore thoroughly to find the best equipment
+- Don't engage multiple enemies at once if possible
+- Save healing items for tough encounters
+- Management-level enemies are much stronger - avoid them until you're well-equipped
 
 ## License
-
-This code is public domain. But don't quote me on that. Or do. Whatever.
+Public domain.
