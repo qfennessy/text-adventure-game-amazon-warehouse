@@ -48,7 +48,7 @@ def getch():
         return input()[0] if input() else ' '
 
 class Entity:
-    def __init__(self, x, y, char, name, color, blocks=True, fighter=None, ai=None, item=None, picker=None):
+    def __init__(self, x, y, char, name, color, blocks=True, fighter=None, ai=None, item=None, picker=None, super_picker=None):
         self.x = x
         self.y = y
         self.char = char
@@ -67,6 +67,9 @@ class Entity:
         self.picker = picker
         if self.picker:
             self.picker.owner = self
+        self.super_picker = super_picker
+        if self.super_picker:
+            self.super_picker.owner = self
 
     def move(self, dx, dy, game_map):
         if 0 <= self.x + dx < len(game_map[0]) and 0 <= self.y + dy < len(game_map):
@@ -197,6 +200,141 @@ class ProductPicker:
             
             # If we couldn't push the player, just don't move
             return f"{self.owner.name} bumps into you but can't push you!"
+        
+        # Regular movement
+        self.owner.x = new_x
+        self.owner.y = new_y
+        return None
+        
+class SuperPicker:
+    def __init__(self, direction=(1, 0), push_strength=5, speed=2):
+        self.owner = None
+        self.direction = direction  # (dx, dy) tuple for movement direction
+        self.push_strength = push_strength  # How far to push the player (stronger than regular picker)
+        self.speed = speed  # How many moves per player turn
+        self.move_counter = 0  # Count moves between player turns
+        self.turns_since_direction_change = 0
+        self.async_move_timer = 0  # For asynchronous movement
+        self.last_player_position = None  # To detect if player has moved
+        
+    def take_turn(self, player, game_map, entities):
+        result = None
+        
+        # Check if player has moved since our last turn
+        player_position = (player.x, player.y)
+        player_moved = self.last_player_position != player_position
+        self.last_player_position = player_position
+        
+        # Initialize async movement timer if first turn
+        if self.async_move_timer == 0:
+            self.async_move_timer = random.randint(2, 5)  # Random initial timer
+            
+        # Decrement async timer if player didn't move
+        if not player_moved:
+            self.async_move_timer -= 1
+            # If timer reaches zero, we move asynchronously
+            if self.async_move_timer <= 0:
+                self.async_move_timer = random.randint(2, 4)  # Reset timer for next async move
+                result = self.move(player, game_map, entities)
+                return result or f"{self.owner.name} moves asynchronously!"
+                
+        # Regular synchronized movement
+        for _ in range(self.speed):
+            # Move multiple times per turn (based on speed)
+            move_result = self.move(player, game_map, entities)
+            if move_result:
+                result = move_result
+                
+        return result
+        
+    def move(self, player, game_map, entities):
+        """Single movement step for the SuperPicker"""
+        # Move along the direction
+        dx, dy = self.direction
+        new_x, new_y = self.owner.x + dx, self.owner.y + dy
+        
+        # Change direction if hitting a wall/shelf or after random interval
+        self.turns_since_direction_change += 1
+        if (not (0 <= new_x < len(game_map[0]) and 0 <= new_y < len(game_map)) or
+            game_map[new_y][new_x] not in ['.', '>'] or
+            self.turns_since_direction_change > random.randint(8, 15)):
+            
+            # Choose a new direction randomly instead of just reversing
+            possible_directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+            # Remove current direction from possibilities
+            if (dx, dy) in possible_directions:
+                possible_directions.remove((dx, dy))
+            # Also remove reverse direction to avoid ping-pong
+            if (-dx, -dy) in possible_directions:
+                possible_directions.remove((-dx, -dy))
+                
+            # If we have options, choose randomly, otherwise reverse
+            if possible_directions:
+                self.direction = random.choice(possible_directions)
+            else:
+                self.direction = (-dx, -dy)
+                
+            self.turns_since_direction_change = 0
+            return f"{self.owner.name} changes direction!"
+        
+        # Check if we would bump into player
+        if new_x == player.x and new_y == player.y:
+            # SuperPicker pushes harder than regular pickers
+            push_dx, push_dy = self.direction
+            pushed = False
+            push_distance = 0
+            
+            # Try to push player up to push_strength spaces
+            for i in range(1, self.push_strength + 1):
+                push_x, push_y = player.x + (push_dx * i), player.y + (push_dy * i)
+                
+                # Check if push destination is valid
+                if (0 <= push_x < len(game_map[0]) and 0 <= push_y < len(game_map) and
+                    game_map[push_y][push_x] in ['.', '>']):
+                    pushed = True
+                    push_distance = i
+                else:
+                    break
+            
+            if pushed:
+                player.x += push_dx * push_distance
+                player.y += push_dy * push_distance
+                
+                # Move to player's original position
+                self.owner.x = new_x
+                self.owner.y = new_y
+                
+                direction_name = ""
+                if push_dx == 1: direction_name = "east"
+                elif push_dx == -1: direction_name = "west"
+                elif push_dy == 1: direction_name = "south"
+                elif push_dy == -1: direction_name = "north"
+                
+                return f"{Colors.BOLD}{self.owner.name} SLAMS into you, launching you {push_distance} spaces {direction_name}!{Colors.ENDC}"
+            
+            # If we couldn't push the player, just don't move
+            return f"{self.owner.name} crashes into you but can't push you!"
+        
+        # Check for collision with other entities
+        for entity in entities:
+            if entity != self.owner and entity.x == new_x and entity.y == new_y:
+                # If it's another picker, we just change direction
+                if hasattr(entity, 'picker') and entity.picker:
+                    # Choose new random direction
+                    possible_directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    # Try to avoid current and reverse directions
+                    if (dx, dy) in possible_directions:
+                        possible_directions.remove((dx, dy))
+                    if (-dx, -dy) in possible_directions:
+                        possible_directions.remove((-dx, -dy))
+                    
+                    if possible_directions:
+                        self.direction = random.choice(possible_directions)
+                    else:
+                        self.direction = (-dx, -dy)
+                    
+                    self.turns_since_direction_change = 0
+                    return f"{self.owner.name} avoids collision with {entity.name}!"
         
         # Regular movement
         self.owner.x = new_x
@@ -368,6 +506,39 @@ class WarehouseRoguelike:
                     
                     monster = Entity(x, y, 'Z', "SYSTEM ANOMALY", Colors.HEADER, True, fighter_component, ai_component)
                     self.entities.append(monster)
+                    break
+        
+        # Add SuperPickers (1-3 of them based on level) that move asynchronously
+        num_super_pickers = min(self.level, 3)  # Maximum of 3
+        for _ in range(num_super_pickers):
+            while True:
+                x = random.randint(3, self.width - 4)
+                y = random.randint(3, self.height - 4)
+                
+                if self.map[y][x] == '.' and not any(entity.x == x and entity.y == y for entity in self.entities):
+                    # Create SuperPicker with random direction and speed
+                    directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    super_picker_component = SuperPicker(
+                        direction=random.choice(directions),
+                        push_strength=4 + self.level,  # Gets stronger with level
+                        speed=1 + (self.level // 2)    # Gets faster with level
+                    )
+                    
+                    # Higher HP but lower attack
+                    fighter_component = Fighter(15 + self.level * 2, 2, 3)
+                    
+                    # Uppercase P for SuperPicker
+                    monster = Entity(
+                        x, y, 'P', f"SuperPicker L{self.level}", 
+                        Colors.FAIL, True, fighter_component, 
+                        None, None, None, super_picker_component
+                    )
+                    self.entities.append(monster)
+                    
+                    # Add a message to warn the player
+                    if _ == 0:  # Only for the first SuperPicker
+                        self.add_message(f"{Colors.BOLD}WARNING: SuperPicker detected! It moves even when you don't.{Colors.ENDC}")
+                    
                     break
         
         # Add items
@@ -578,7 +749,10 @@ class WarehouseRoguelike:
                 for entity in self.entities:
                     if entity.x == x and entity.y == y:
                         # Special styling for different entity types
-                        if entity.picker:
+                        if entity.super_picker:
+                            # Make super pickers stand out with blinking bold
+                            row += f"\033[5m{colorize(entity.char.upper(), Colors.BOLD + Colors.FAIL)}\033[0m"
+                        elif entity.picker:
                             # Make product pickers more visible with bold
                             row += colorize(entity.char, Colors.BOLD + entity.color)
                         elif "SYSTEM ANOMALY" in entity.name:
@@ -909,6 +1083,9 @@ class WarehouseRoguelike:
             # Process product pickers
             elif entity.picker:
                 result = entity.picker.take_turn(self.player, self.map, self.entities)
+            # Process super pickers
+            elif entity.super_picker:
+                result = entity.super_picker.take_turn(self.player, self.map, self.entities)
                 
             if result:
                 results.append(result)
@@ -971,6 +1148,7 @@ class WarehouseRoguelike:
         
         print("\nSpecial Entities:")
         print(f"  {colorize('r', Colors.BOLD + Colors.FAIL)}: Product Picker (can push you several spaces)")
+        print(f"  {colorize('P', Colors.BOLD + Colors.FAIL)} \033[5m{colorize('P', Colors.FAIL)}\033[0m: SuperPicker (moves asynchronously, pushes harder)")
         print(f"  {colorize('Z', Colors.HEADER)}: System Anomaly (breaks the fourth wall)")
         print(f"  {colorize('S', Colors.BOLD + Colors.FAIL)}: Self-Aware Entity (knows it's in a game)")
         
